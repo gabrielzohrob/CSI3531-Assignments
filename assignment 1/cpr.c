@@ -121,9 +121,13 @@ void creerEnfantEtLire(int prcNum)
 		close(pipes[1]);
 
 		//re-executing the program
-		int newPRC = prcNum-1;
-        execvp("cpr.c", "cpr" "newPRC");
-		fprintf(stderr, "Erreur lors de l'éxecution de exec.\n");
+		char strNum[12];
+		sprintf(strNum, "%d", prcNum - 1);
+		char *args[] = {"./cpr", strNum, NULL};
+		execvp(args[0], args);
+
+		// If execvp fails
+		perror("Erreur lors de l'execution de execvp");
 		exit(-1);
 	}
 
