@@ -3,47 +3,54 @@ import java.util.Queue;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-// TA thread class
+// TA thread class: defines what the Teaching Assistant does
 class TA implements Runnable {
 
     public void run() {
         while (true) {
             try {
+                // TA starts by sleeping until a student wakes him
                 synchronized (System.out) {
                     System.out.println("Le TA est en train de dormir.\n");
                 }
 
-                // TA waits to be woken up
+                // Wait until a student releases the 'asleep' semaphore to wake the TA
                 Devoir3.asleep.acquire();
 
                 while (true) {
+                    // Lock the shared variables to prevent other threads from changing them
                     Devoir3.mutex.acquire();
 
-                    // No students waiting
+                    // If no students are waiting, the TA goes back to sleep
                     if (Devoir3.waiting == 0) {
                         synchronized (System.out) {
                             System.out.println("Le TA retourne dormir. Aucun étudiant en attente.\n");
                         }
-                        Devoir3.taAwake.set(false);  // Mark TA as asleep
+
+                        // Mark TA as asleep
+                        Devoir3.taAwake.set(false);
+
+                        // Release the lock
                         Devoir3.mutex.release();
-                        break;
+                        break; // exit the inner loop and sleep again
                     }
 
-                    // Help next student in queue
+                    // Take the next student from the waiting queue
                     int studentID = Devoir3.chairQueue.remove();
-                    Devoir3.waiting--;
+                    Devoir3.waiting--; // reduce number of waiting students
 
                     synchronized (System.out) {
                         System.out.println("Le TA commence à aider l'étudiant " + studentID +
                                 ". Étudiants restants: " + Devoir3.waiting);
                     }
 
+                    // Release the lock so other students can access shared variables
                     Devoir3.mutex.release();
 
-                    // Simulate helping time
+                    // Simulate helping the student for 1–5 seconds
                     Thread.sleep((int) (Math.random() * 4000 + 1000));
 
-                    // Notify student that help is done
+                    // Signal the student that the help session is done
                     Devoir3.studentSem[studentID].release();
 
                     synchronized (System.out) {
@@ -57,45 +64,49 @@ class TA implements Runnable {
     }
 }
 
-// Student thread class
+// Student thread class: defines what each student does
 class Student implements Runnable {
     private final int id;
 
     public Student(int ID) {
-        this.id = ID;
+        this.id = ID; // save the student's unique ID
     }
 
     public void run() {
         while (true) {
             try {
-                // Simulate programming
+                // Student is working (programming) before needing help
                 synchronized (System.out) {
                     System.out.println("L'étudiant " + id + " est en train de programmer.\n");
                 }
+
+                // Simulate programming time (1–6 seconds)
                 Thread.sleep((int) (Math.random() * 5000 + 1000));
 
+                // Try to enter the hallway (critical section)
                 Devoir3.mutex.acquire();
 
+                // If a chair is available, take a seat
                 if (Devoir3.waiting < Devoir3.chairs) {
-                    // Take a seat in the hallway
-                    Devoir3.chairQueue.add(id);
-                    Devoir3.waiting++;
+                    Devoir3.chairQueue.add(id); // join the queue
+                    Devoir3.waiting++; // increase number of waiting students
 
                     synchronized (System.out) {
                         System.out.println("L'étudiant " + id + " entre dans le couloir et s'assoit. Étudiants en attente: " + Devoir3.waiting + "\n");
                     }
 
-                    // Wake the TA only if asleep
-                    if (Devoir3.waiting==1 && Devoir3.taAwake.compareAndSet(false, true)) {
+                    // If this is the first student and TA is asleep, wake him
+                    if (Devoir3.waiting == 1 && Devoir3.taAwake.compareAndSet(false, true)) {
                         synchronized (System.out) {
                             System.out.println("L'étudiant " + id + " réveille le TA.");
                         }
-                        Devoir3.asleep.release();
+                        Devoir3.asleep.release(); // wake up the TA
                     }
 
+                    // Done with shared data, release lock
                     Devoir3.mutex.release();
 
-                    // Wait for TA to help
+                    // Wait until the TA finishes helping
                     Devoir3.studentSem[id].acquire();
 
                     synchronized (System.out) {
@@ -103,13 +114,15 @@ class Student implements Runnable {
                     }
 
                 } else {
-                    // No chairs available
+                    // If no chair is available, go back to programming
                     synchronized (System.out) {
                         System.out.println("L'étudiant " + id + " n'a pas trouvé de chaise disponible et retournera programmer et demander de l'aide plus tard.\n");
                     }
+
+                    // Release the lock before going back to programming
                     Devoir3.mutex.release();
 
-                    // Wait before trying again
+                    // Wait a bit before trying again (2–5 seconds)
                     Thread.sleep((int) (Math.random() * 3000 + 2000));
                 }
 
@@ -120,23 +133,23 @@ class Student implements Runnable {
     }
 }
 
-// Main class
+// Main class: starts the simulation
 public class Devoir3 {
-    public static int numStudents = 5;
-    public static final int chairs = 3;
+    public static int numStudents = 5;          // Default number of students
+    public static final int chairs = 3;         // Maximum number of hallway chairs
 
     // Shared variables and synchronization tools
-    public static Semaphore mutex = new Semaphore(1);
-    public static Semaphore asleep = new Semaphore(0);
-    public static Semaphore[] studentSem;
-    public static Queue<Integer> chairQueue = new LinkedList<>();
-    public static int waiting = 0;
-    public static AtomicBoolean taAwake = new AtomicBoolean(false);
+    public static Semaphore mutex = new Semaphore(1);            // Controls access to shared resources
+    public static Semaphore asleep = new Semaphore(0);           // Used to wake the TA
+    public static Semaphore[] studentSem;                        // One semaphore per student
+    public static Queue<Integer> chairQueue = new LinkedList<>(); // Queue to keep track of students in hallway
+    public static int waiting = 0;                               // Current number of students waiting
+    public static AtomicBoolean taAwake = new AtomicBoolean(false); // Tracks if TA is awake
 
     public static void main(String[] args) {
         int nStudents = numStudents;
 
-        // Optional command-line argument to override number of students
+        // Allow overriding the number of students through command-line argument
         if (args.length > 0) {
             try {
                 nStudents = Integer.parseInt(args[0]);
@@ -145,26 +158,26 @@ public class Devoir3 {
             }
         }
 
-        // Initialize semaphores for each student
+        // Initialize a private semaphore for each student
         studentSem = new Semaphore[nStudents];
         for (int i = 0; i < nStudents; i++) {
             studentSem[i] = new Semaphore(0);
         }
 
-        // Start TA thread
+        // Start the TA thread
         Thread taThread = new Thread(new TA(), "TA-Thread");
         taThread.start();
 
-        // Start student threads
+        // Start all student threads
         for (int i = 0; i < nStudents; i++) {
             new Thread(new Student(i), "Student-" + i).start();
         }
 
-        // Let the simulation run
+        // Run the simulation for 20 seconds, then stop the program
         try {
-            Thread.sleep(20000);  // Run for 20 seconds
+            Thread.sleep(20000); // Run simulation
             System.out.println("\nSimulation terminée après 20 secondes.");
-            System.exit(0);
+            System.exit(0);      // Forcefully end all threads
         } catch (InterruptedException e) {
             e.printStackTrace();
         }
